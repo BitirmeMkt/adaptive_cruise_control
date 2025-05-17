@@ -58,7 +58,7 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
 
     Eigen::Vector3d camera_matrix_;
 
-    camera_matrix_ = extrinsic_matrix_ * Eigen::Vector4d(*iter_x, *iter_y, *iter_z, 1.0);
+    camera_matrix_ = extrinsic_matrix_ * Eigen::Vector4d(-(*iter_y), -(*iter_z), *iter_x, 1.0);
     // RCLCPP_INFO(this->get_logger(), "Point %zu: x=%f, y=%f, z=%f", i, camera_matrix_(0), camera_matrix_(1), camera_matrix_(2));
 
     u_ = fx_ * camera_matrix_(0) / camera_matrix_(2) + cx_;

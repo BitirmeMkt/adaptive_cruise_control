@@ -4,7 +4,7 @@ adaptive_cruise_control_node:
     camera_topic: "/camera/image_raw"
     camera_info_topic: "/camera/camera_info"
     translation_vector: [0.1, 0.05, 0.350]
-    rotation_matrix: [1.0, 0.0, 0.0,
+    rotation_matrix: [0.95534, 0.0, 0.29552,
                       0.0, 1.0, 0.0,
-                      0.0, 0.0, 1.0]
+                      -0.29552, 0.0, 0.95534]
                       
