@@ -12,6 +12,9 @@ find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(laser_geometry REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(vision_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -33,6 +36,9 @@ ament_target_dependencies(adaptive_cruise_control_component
   sensor_msgs
   laser_geometry
   Eigen3
+  OpenCV
+  cv_bridge
+  vision_msgs
 )
 
 

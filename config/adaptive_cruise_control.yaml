@@ -1,10 +1,11 @@
 adaptive_cruise_control_node:
   ros__parameters:
     laser_topic: "/scan"
-    camera_topic: "/camera/image_raw"
+    camera_topic: "/camera/image_raw/decompressed"
     camera_info_topic: "/camera/camera_info"
-    translation_vector: [0.1, 0.05, 0.350]
-    rotation_matrix: [0.95534, 0.0, 0.29552,
+    detection_topic: "/detection_result"
+    translation_vector: [0.1, 0.4, -0.2]
+    rotation_matrix: [1.0, 0.0, 0.0,
                       0.0, 1.0, 0.0,
-                      -0.29552, 0.0, 0.95534]
+                      0.0, 0.0, 1.0]
                       

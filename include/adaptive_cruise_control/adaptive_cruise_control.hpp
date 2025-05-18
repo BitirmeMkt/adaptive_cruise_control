@@ -5,9 +5,14 @@
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
 #include <laser_geometry/laser_geometry.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <Eigen/Dense>
+#include <opencv2/opencv.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <vision_msgs/msg/detection2_d_array.hpp>
+
 
 namespace adaptive_cruise_control
 {
@@ -29,9 +34,17 @@ private:
 
   void camera_info_topic_callback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
 
+  void image_callback(const sensor_msgs::msg::Image::SharedPtr msg);
+
+  void detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg);
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_subscriber_;
 
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
+
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
+
+  rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detection_subscriber_;
 
   laser_geometry::LaserProjection projector_;
 
@@ -46,6 +59,16 @@ private:
   std::string camera_topic_;
 
   std::string camera_info_topic_;
+
+  std::string detection_topic_;
+
+  double bbox_center_x_;
+
+  double bbox_center_y_;
+
+  double bbox_size_x_;
+
+  double bbox_size_y_;
 
   // 4x4 extrinsic matrix [row-major]
   std::array<std::array<double, 4>, 4> extrinsic{};
@@ -66,6 +89,8 @@ private:
   double cx_;
 
   double cy_;
+
+  std::vector<cv::Point2d> image_points_;
 };
 
 }  // namespace my_package

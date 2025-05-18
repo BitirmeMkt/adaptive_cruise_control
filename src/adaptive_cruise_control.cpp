@@ -16,7 +16,13 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
     camera_info_topic_, 10, std::bind(&AdaptiveCruiseControl::camera_info_topic_callback, this, std::placeholders::_1));
 
   laser_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    "/scan", 10, std::bind(&AdaptiveCruiseControl::scan_callback, this, std::placeholders::_1));
+    laser_topic_, 10, std::bind(&AdaptiveCruiseControl::scan_callback, this, std::placeholders::_1));
+
+  image_subscriber_ = this->create_subscription<sensor_msgs::msg::Image>(
+    camera_topic_, 10, std::bind(&AdaptiveCruiseControl::image_callback, this, std::placeholders::_1));
+  
+  detection_subscriber_ = this->create_subscription<vision_msgs::msg::Detection2DArray>(
+    detection_topic_, 10, std::bind(&AdaptiveCruiseControl::detection_callback, this, std::placeholders::_1));
 }
 
 bool AdaptiveCruiseControl::read_parameters()
@@ -27,12 +33,14 @@ bool AdaptiveCruiseControl::read_parameters()
     this->declare_parameter<std::string>("laser_topic","/default_laser_topic");
     this->declare_parameter<std::string>("camera_topic","/default_camera_topic");
     this->declare_parameter<std::string>("camera_info_topic","/default_camera_info_topic");
+    this->declare_parameter<std::string>("detection_topic", "/default_detection_topic");
 
     translation_vector_ = this->get_parameter("translation_vector").as_double_array();
     rotation_matrix_ = this->get_parameter("rotation_matrix").as_double_array();
     laser_topic_ = this->get_parameter("laser_topic").as_string();
     camera_topic_ = this->get_parameter("camera_topic").as_string();
     camera_info_topic_ = this->get_parameter("camera_info_topic").as_string();
+    detection_topic_ = this->get_parameter("detection_topic").as_string();
 
     RCLCPP_INFO(this->get_logger(), "translation_vector: [%f, %f, %f]", translation_vector_[0], translation_vector_[1], translation_vector_[2]);
     RCLCPP_INFO(this->get_logger(), "rotation_matrix: [%f, %f, %f, %f, %f, %f, %f, %f, %f]", rotation_matrix_[0], rotation_matrix_[1],
@@ -40,10 +48,12 @@ bool AdaptiveCruiseControl::read_parameters()
     RCLCPP_INFO(this->get_logger(), "laser_topic: %s", laser_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "camera_topic: %s", camera_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "camera_info_topic: %s", camera_info_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "detection_topic: %s", detection_topic_.c_str());
 }
 
 void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 {
+  image_points_.clear();
   RCLCPP_INFO(this->get_logger(), "LaserScan mesaji alindi! Mesafe: %f", msg->ranges[0]);
   projector_.projectLaser(*msg,m_pointcloud_msg);
   m_pointcloud_msg.header.frame_id = msg->header.frame_id;
@@ -54,7 +64,7 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
   sensor_msgs::PointCloud2ConstIterator<float> iter_z(m_pointcloud_msg, "z");
 
   for (size_t i = 0; i < m_pointcloud_msg.width * m_pointcloud_msg.height; ++i, ++iter_x, ++iter_y, ++iter_z) {
-    RCLCPP_INFO(this->get_logger(), "Point %zu: x=%f, y=%f, z=%f", i, *iter_x, *iter_y, *iter_z);
+    // RCLCPP_INFO(this->get_logger(), "Point %zu: x=%f, y=%f, z=%f", i, *iter_x, *iter_y, *iter_z);
 
     Eigen::Vector3d camera_matrix_;
 
@@ -63,7 +73,9 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
 
     u_ = fx_ * camera_matrix_(0) / camera_matrix_(2) + cx_;
     v_ = fy_ * camera_matrix_(1) / camera_matrix_(2) + cy_;
-    RCLCPP_INFO(this->get_logger(), "Pixel coordinates for point [%zu]: u=%f, v=%f",i, u_, v_);
+
+    image_points_.push_back(cv::Point2d(u_,v_));
+    // RCLCPP_INFO(this->get_logger(), "Pixel coordinates for point [%zu]: u=%f, v=%f",i, u_, v_);
   }
 }
 
@@ -102,7 +114,39 @@ void AdaptiveCruiseControl::camera_info_topic_callback(const sensor_msgs::msg::C
     }
   }
 }
+
+void AdaptiveCruiseControl::image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
+{
+  try
+  {
+  RCLCPP_INFO(this->get_logger(), "Image mesaji alindi!" );
+  cv::Mat image = cv_bridge::toCvCopy(msg, "bgr8")->image;
+  for (const auto& point : image_points_)
+  {
+    cv::Point point_int(static_cast<int>(point.x), static_cast<int>(point.y));
+    cv::circle(image, point_int, 5, cv::Scalar(0, 255, 0), -1);
+  }
+  cv::imshow("Görüntü", image);
+  cv::waitKey(1);
+  }
+  catch (cv_bridge::Exception& e)
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "cv_bridge hatasi: %s", e.what());
+    }
 }
+
+void AdaptiveCruiseControl::detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg)
+{
+  RCLCPP_INFO(this->get_logger(), "Detection mesaji alindi!");
+  RCLCPP_INFO(this->get_logger(), "Detection id : %s",msg->detections[0].results[0].hypothesis.class_id.c_str());
+  bbox_center_x_ = msg->detections[0].bbox.center.position.x;
+  bbox_center_y_ = msg->detections[0].bbox.center.position.y;
+  bbox_size_x_ = msg->detections[0].bbox.size_x;
+  bbox_size_y_ = msg->detections[0].bbox.size_y;
+}
+
+}
+
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(adaptive_cruise_control::AdaptiveCruiseControl)
