@@ -38,6 +38,8 @@ private:
 
   void detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg);
 
+  void timer_callback();
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_subscriber_;
 
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
@@ -82,6 +84,8 @@ private:
 
   bool received_once_;
 
+  bool bbox_received_;
+
   double fx_;
 
   double fy_;
@@ -91,6 +95,21 @@ private:
   double cy_;
 
   std::vector<cv::Point2d> image_points_;
+
+  struct LidarCameraPoint
+  {
+    float x;
+    float y;
+    float z;
+    int u;
+    int v;
+  };
+
+  std::vector<LidarCameraPoint> bbox_points;
+
+  std::vector<double> distance_values;
+
+  rclcpp::TimerBase::SharedPtr timer_;
 };
 
 }  // namespace my_package

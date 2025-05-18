@@ -23,6 +23,10 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
   
   detection_subscriber_ = this->create_subscription<vision_msgs::msg::Detection2DArray>(
     detection_topic_, 10, std::bind(&AdaptiveCruiseControl::detection_callback, this, std::placeholders::_1));
+
+  // Timer callback
+  timer_ = this->create_wall_timer(
+    std::chrono::milliseconds(100), std::bind(&AdaptiveCruiseControl::timer_callback, this));
 }
 
 bool AdaptiveCruiseControl::read_parameters()
@@ -54,11 +58,13 @@ bool AdaptiveCruiseControl::read_parameters()
 void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 {
   image_points_.clear();
-  RCLCPP_INFO(this->get_logger(), "LaserScan mesaji alindi! Mesafe: %f", msg->ranges[0]);
+  bbox_points.clear();
+  distance_values.clear();
+  // RCLCPP_INFO(this->get_logger(), "LaserScan mesaji alindi! Mesafe: %f", msg->ranges[0]);
   projector_.projectLaser(*msg,m_pointcloud_msg);
   m_pointcloud_msg.header.frame_id = msg->header.frame_id;
   m_pointcloud_msg.header.stamp = msg->header.stamp;
-  RCLCPP_INFO(this->get_logger(), "PointCloud2 mesaji olusturuldu!");
+  // RCLCPP_INFO(this->get_logger(), "PointCloud2 mesaji olusturuldu!");
   sensor_msgs::PointCloud2ConstIterator<float> iter_x(m_pointcloud_msg, "x");
   sensor_msgs::PointCloud2ConstIterator<float> iter_y(m_pointcloud_msg, "y");
   sensor_msgs::PointCloud2ConstIterator<float> iter_z(m_pointcloud_msg, "z");
@@ -73,9 +79,32 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
 
     u_ = fx_ * camera_matrix_(0) / camera_matrix_(2) + cx_;
     v_ = fy_ * camera_matrix_(1) / camera_matrix_(2) + cy_;
+    if(bbox_received_ == true)
+    {
+      if(bbox_center_x_ + bbox_size_x_ / 2 > u_ && bbox_center_x_ - bbox_size_x_ / 2 < u_ &&
+         bbox_center_y_ + bbox_size_y_ / 2 > v_ && bbox_center_y_ - bbox_size_y_ / 2 < v_)
+      {
+        // RCLCPP_INFO(this->get_logger(), "Uygun nokta bulundu! u: %f, v: %f", u_, v_);
+        LidarCameraPoint bbox_point;
+        bbox_point.x = camera_matrix_(0);
+        bbox_point.y = camera_matrix_(1);
+        bbox_point.z = camera_matrix_(2);
+        bbox_point.u = u_;
+        bbox_point.v = v_;
+        bbox_points.push_back(bbox_point);
+        // Find distance to the object
+        double distance = std::sqrt(std::pow(bbox_point.x, 2) + std::pow(bbox_point.y, 2) + std::pow(bbox_point.z, 2));
+        // RCLCPP_INFO(this->get_logger(), "Uygun noktanin mesafesi: %f", distance);
+        distance_values.push_back(distance);
+      }
+      else
+      {
+        // RCLCPP_INFO(this->get_logger(), "Uygun nokta bulunamadi!");
+      }
+      image_points_.push_back(cv::Point2d(u_,v_));
+      // RCLCPP_INFO(this->get_logger(), "Pixel coordinates for point [%zu]: u=%f, v=%f",i, u_, v_);
+    }
 
-    image_points_.push_back(cv::Point2d(u_,v_));
-    // RCLCPP_INFO(this->get_logger(), "Pixel coordinates for point [%zu]: u=%f, v=%f",i, u_, v_);
   }
 }
 
@@ -119,7 +148,7 @@ void AdaptiveCruiseControl::image_callback(const sensor_msgs::msg::Image::Shared
 {
   try
   {
-  RCLCPP_INFO(this->get_logger(), "Image mesaji alindi!" );
+  // RCLCPP_INFO(this->get_logger(), "Image mesaji alindi!" );
   cv::Mat image = cv_bridge::toCvCopy(msg, "bgr8")->image;
   for (const auto& point : image_points_)
   {
@@ -131,18 +160,55 @@ void AdaptiveCruiseControl::image_callback(const sensor_msgs::msg::Image::Shared
   }
   catch (cv_bridge::Exception& e)
     {
-        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "cv_bridge hatasi: %s", e.what());
+        RCLCPP_ERROR(this->get_logger(), "cv_bridge hatasi: %s", e.what());
     }
 }
 
 void AdaptiveCruiseControl::detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr msg)
 {
-  RCLCPP_INFO(this->get_logger(), "Detection mesaji alindi!");
-  RCLCPP_INFO(this->get_logger(), "Detection id : %s",msg->detections[0].results[0].hypothesis.class_id.c_str());
-  bbox_center_x_ = msg->detections[0].bbox.center.position.x;
-  bbox_center_y_ = msg->detections[0].bbox.center.position.y;
-  bbox_size_x_ = msg->detections[0].bbox.size_x;
-  bbox_size_y_ = msg->detections[0].bbox.size_y;
+  try
+  {
+    if (msg->detections.empty())
+    {
+      RCLCPP_INFO(this->get_logger(), "Detection mesaji bos!");
+      bbox_received_ =false;
+      return;
+    }else
+    {
+      // RCLCPP_INFO(this->get_logger(), "Detection mesaji alindi!");
+      // RCLCPP_INFO(this->get_logger(), "Detection id : %s",msg->detections[0].results[0].hypothesis.class_id.c_str());
+      bbox_center_x_ = msg->detections[0].bbox.center.position.x;
+      bbox_center_y_ = msg->detections[0].bbox.center.position.y;
+      bbox_size_x_ = msg->detections[0].bbox.size_x;
+      bbox_size_y_ = msg->detections[0].bbox.size_y;
+      bbox_received_ = true;
+    }
+
+  }
+  catch (std::exception& e)
+    {
+        RCLCPP_ERROR(this->get_logger(), "Detection hatasi: %s", e.what());
+    }
+}
+
+void AdaptiveCruiseControl::timer_callback()
+{
+  // Distance calculation
+  if(bbox_received_ == true && !distance_values.empty())
+  {
+    double sum = 0.0;
+    for (const auto& distances : distance_values)
+    {
+      // bütün distance değerlerinin ortalamasını al
+      sum += distances;
+    }
+    double average_distance = sum / distance_values.size();
+    RCLCPP_INFO(this->get_logger(), "Mesafe: %f", average_distance);
+  }
+  else
+  {
+    RCLCPP_INFO(this->get_logger(), "Mesafe hesaplanamadi! bbox bilgisi yok veya lidar nokta bulutu dusmuyor.");
+  }
 }
 
 }
