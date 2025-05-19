@@ -13,7 +13,9 @@
 #include <cv_bridge/cv_bridge.h>
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <cmath>
-
+#include "serialib/serialib.h"
+#include <unistd.h>
+#include <stdio.h>
 
 namespace adaptive_cruise_control
 {
@@ -47,6 +49,8 @@ private:
 
   int normalize_output(double output);
 
+  void stm_communication(double value);
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_subscriber_;
 
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
@@ -70,6 +74,8 @@ private:
   std::string camera_info_topic_;
 
   std::string detection_topic_;
+
+  std::string serial_port_;
 
   bool adaptive_cruise_controller_flag_;
 
@@ -148,7 +154,7 @@ private:
 
   double relative_lead_vehicle_speed;
 
-  double integral_adaptive_;
+  double integral_adaptive_ = 0.0;;
 
   double integral_ = 0.0;
 };

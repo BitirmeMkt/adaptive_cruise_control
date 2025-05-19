@@ -4,6 +4,8 @@ adaptive_cruise_control_node:
     camera_topic: "/camera/image_raw/decompressed"
     camera_info_topic: "/camera/camera_info"
     detection_topic: "/detection_result"
+    serial_port: "/dev/ttyUSB0"
+    serial_baudrate: 115200
     translation_vector: [0.1, 0.4, -0.2]
     rotation_matrix: [1.0, 0.0, 0.0,
                       0.0, 1.0, 0.0,

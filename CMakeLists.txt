@@ -19,9 +19,12 @@ find_package(vision_msgs REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
+file(GLOB_RECURSE LIB_SOURCES "include/serialib/*.cpp" "include/serialib/*.c")
+file(GLOB_RECURSE LIB_HEADERS "include/serialib/*.hpp" "include/serialib/*.h")
 
 add_library(adaptive_cruise_control_component SHARED
   src/adaptive_cruise_control.cpp
+  src/serialib.cpp
 )
 
 # Component olarak derlenmesi için eklemeler:
@@ -40,6 +43,7 @@ ament_target_dependencies(adaptive_cruise_control_component
   cv_bridge
   vision_msgs
 )
+
 
 
 
