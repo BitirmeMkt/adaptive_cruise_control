@@ -6,7 +6,6 @@ namespace adaptive_cruise_control
 AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options)
 : Node("adaptive_cruise_control_node", options)
 {
-  RCLCPP_INFO(this->get_logger(), "Composable başlatıldı!");
   // Geri kalan başlatma işlemleri burada
   read_parameters();
 
@@ -26,7 +25,7 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
 
   // Timer callback
   timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(100), std::bind(&AdaptiveCruiseControl::timer_callback, this));
+    std::chrono::milliseconds(static_cast<int>(timer_value_)), std::bind(&AdaptiveCruiseControl::timer_callback, this));
 }
 
 bool AdaptiveCruiseControl::read_parameters()
@@ -38,6 +37,12 @@ bool AdaptiveCruiseControl::read_parameters()
     this->declare_parameter<std::string>("camera_topic","/default_camera_topic");
     this->declare_parameter<std::string>("camera_info_topic","/default_camera_info_topic");
     this->declare_parameter<std::string>("detection_topic", "/default_detection_topic");
+    this->declare_parameter<double>("timer_value", 100.0);
+    this->declare_parameter<int>("kp_value", 0);
+    this->declare_parameter<int>("ki_value", 0);
+    this->declare_parameter<int>("kd_value", 0);
+    this->declare_parameter<double>("pid_max", 0.0);
+    this->declare_parameter<double>("pid_min", 0.0);
 
     translation_vector_ = this->get_parameter("translation_vector").as_double_array();
     rotation_matrix_ = this->get_parameter("rotation_matrix").as_double_array();
@@ -45,6 +50,12 @@ bool AdaptiveCruiseControl::read_parameters()
     camera_topic_ = this->get_parameter("camera_topic").as_string();
     camera_info_topic_ = this->get_parameter("camera_info_topic").as_string();
     detection_topic_ = this->get_parameter("detection_topic").as_string();
+    timer_value_ = this->get_parameter("timer_value").as_double();
+    kp_ = static_cast<double>(this->get_parameter("kp_value").as_int());
+    ki_ = static_cast<double>(this->get_parameter("ki_value").as_int());
+    kd_ = static_cast<double>(this->get_parameter("kd_value").as_int());
+    pid_max_ = this->get_parameter("pid_max").as_double();
+    pid_min_ = this->get_parameter("pid_min").as_double();
 
     RCLCPP_INFO(this->get_logger(), "translation_vector: [%f, %f, %f]", translation_vector_[0], translation_vector_[1], translation_vector_[2]);
     RCLCPP_INFO(this->get_logger(), "rotation_matrix: [%f, %f, %f, %f, %f, %f, %f, %f, %f]", rotation_matrix_[0], rotation_matrix_[1],
@@ -53,6 +64,12 @@ bool AdaptiveCruiseControl::read_parameters()
     RCLCPP_INFO(this->get_logger(), "camera_topic: %s", camera_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "camera_info_topic: %s", camera_info_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "detection_topic: %s", detection_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "timer_value: %f", timer_value_);
+    RCLCPP_INFO(this->get_logger(), "kp: %f", kp_);
+    RCLCPP_INFO(this->get_logger(), "ki: %f", ki_);
+    RCLCPP_INFO(this->get_logger(), "kd: %f", kd_);
+    RCLCPP_INFO(this->get_logger(), "pid_max: %f", pid_max_);
+    RCLCPP_INFO(this->get_logger(), "pid_min: %f", pid_min_);
 }
 
 void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
@@ -196,6 +213,7 @@ void AdaptiveCruiseControl::timer_callback()
   // Distance calculation
   if(bbox_received_ == true && !distance_values.empty())
   {
+    adaptive_cruise_controller_flag_ = true;
     double sum = 0.0;
     for (const auto& distances : distance_values)
     {
@@ -204,11 +222,73 @@ void AdaptiveCruiseControl::timer_callback()
     }
     double average_distance = sum / distance_values.size();
     RCLCPP_INFO(this->get_logger(), "Mesafe: %f", average_distance);
+    if (old_distance_initialized_)
+    {
+      relative_lead_vehicle_speed = (average_distance - old_distance_) / (timer_value_/1000);
+      RCLCPP_INFO(this->get_logger(), "Lead vehicle speed: %f", relative_lead_vehicle_speed);      
+    }
+    
+    old_distance_ = average_distance;
+    old_distance_initialized_ = true;
   }
   else
   {
     RCLCPP_INFO(this->get_logger(), "Mesafe hesaplanamadi! bbox bilgisi yok veya lidar nokta bulutu dusmuyor.");
+    adaptive_cruise_controller_flag_ = false;
   }
+
+  if(adaptive_cruise_controller_flag_ == true && relative_lead_vehicle_speed < 0)
+  {
+    adaptive_cruise_controller(relative_lead_vehicle_speed);
+  }
+  else
+  {
+    cruise_controller();
+  }
+}
+
+void AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehicle_speed)
+{
+  RCLCPP_INFO(this->get_logger(), "Adaptive cruise controller calisiyor!");
+  double dt = timer_value_ / 1000.0;
+  double error = std::abs(relative_lead_vehicle_speed);
+  integral_ += error * dt;
+  double derivative = (dt > 0.0) ? (error - prev_error_adaptive_) / dt : 0.0;
+  prev_error_adaptive_ = error;
+  double output = kp_ * error + ki_ * integral_ + kd_ * derivative;
+  throttle = normalize_output(output);
+}
+
+void AdaptiveCruiseControl::cruise_controller()
+{
+  RCLCPP_INFO(this->get_logger(), "Cruise controller calisiyor!");
+  double dt = timer_value_ / 1000.0;
+  double error = reference_speed_ - vehicle_speed_;
+  RCLCPP_INFO(this->get_logger(), "error : %f", error);
+  integral_ += error * dt;
+  double derivative = (dt > 0.0) ? (error - prev_error_) / dt : 0.0;
+  prev_error_ = error;
+  RCLCPP_INFO(this->get_logger(), "kp * error : %f", kp_ * error);
+  RCLCPP_INFO(this->get_logger(), "ki_ * integral_ : %f", ki_ * integral_);
+  RCLCPP_INFO(this->get_logger(), "kd_ * derivative : %f", kd_ * derivative);
+  double output = kp_ * error + ki_ * integral_ + kd_ * derivative;
+  RCLCPP_INFO(this->get_logger(), "output : %f", output);
+  throttle = normalize_output(output);
+  RCLCPP_INFO(this->get_logger(), "Throttle: %d", throttle);
+}
+
+int AdaptiveCruiseControl::normalize_output(double output)
+{
+  if (output > pid_max_) 
+  {
+    output = pid_max_;
+  }
+  if (output < pid_min_)
+  {
+    output = pid_min_;
+  }
+
+  return static_cast<int>((output - pid_min_) / (pid_max_ - pid_min_) * 100.0);
 }
 
 }

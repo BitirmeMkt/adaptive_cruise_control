@@ -8,4 +8,10 @@ adaptive_cruise_control_node:
     rotation_matrix: [1.0, 0.0, 0.0,
                       0.0, 1.0, 0.0,
                       0.0, 0.0, 1.0]
-                      
+    timer_value: 100.0 # in ms
+    kp_value: 100
+    ki_value: 10
+    kd_value: 5
+    pid_max: 1500.0
+    pid_min: 0.0
+    

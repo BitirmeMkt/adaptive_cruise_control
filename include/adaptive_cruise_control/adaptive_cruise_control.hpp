@@ -12,6 +12,7 @@
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <vision_msgs/msg/detection2_d_array.hpp>
+#include <cmath>
 
 
 namespace adaptive_cruise_control
@@ -40,6 +41,12 @@ private:
 
   void timer_callback();
 
+  void adaptive_cruise_controller(double relative_lead_vehicle_speed);
+
+  void cruise_controller();
+
+  int normalize_output(double output);
+
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_subscriber_;
 
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_subscriber_;
@@ -64,6 +71,8 @@ private:
 
   std::string detection_topic_;
 
+  bool adaptive_cruise_controller_flag_;
+
   double bbox_center_x_;
 
   double bbox_center_y_;
@@ -85,6 +94,8 @@ private:
   bool received_once_;
 
   bool bbox_received_;
+
+  bool old_distance_initialized_;
 
   double fx_;
 
@@ -110,6 +121,36 @@ private:
   std::vector<double> distance_values;
 
   rclcpp::TimerBase::SharedPtr timer_;
+
+  double old_distance_;
+
+  double timer_value_;
+
+  double kp_;
+
+  double ki_;
+
+  double kd_;
+
+  double pid_max_;
+
+  double pid_min_;
+
+  int throttle;
+
+  double reference_speed_ = 12.0; //Cruise controller speed
+
+  double vehicle_speed_ = 10.0; // From stm32
+  
+  double prev_error_adaptive_;
+
+  double prev_error_;
+
+  double relative_lead_vehicle_speed;
+
+  double integral_adaptive_;
+
+  double integral_ = 0.0;
 };
 
 }  // namespace my_package
