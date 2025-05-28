@@ -23,12 +23,15 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
   detection_subscriber_ = this->create_subscription<vision_msgs::msg::Detection2DArray>(
     detection_topic_, 10, std::bind(&AdaptiveCruiseControl::detection_callback, this, std::placeholders::_1));
 
+  throttle_publisher_ = this->create_publisher<std_msgs::msg::Float32>(
+    throttle_publisher_topic_.c_str(), 10);
+
   // Timer callback
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(static_cast<int>(timer_value_)), std::bind(&AdaptiveCruiseControl::timer_callback, this));
 }
 
-bool AdaptiveCruiseControl::read_parameters()
+void AdaptiveCruiseControl::read_parameters()
 {
     // this->declare_parameter<string>("asdf","default");
     this->declare_parameter<std::vector<double>>("translation_vector",{0.0,0.0,0.0});
@@ -37,7 +40,9 @@ bool AdaptiveCruiseControl::read_parameters()
     this->declare_parameter<std::string>("camera_topic","/default_camera_topic");
     this->declare_parameter<std::string>("camera_info_topic","/default_camera_info_topic");
     this->declare_parameter<std::string>("detection_topic", "/default_detection_topic");
+    this->declare_parameter<std::string>("throttle_publisher_topic", "/default_throttle_topic");    
     this->declare_parameter<std::string>("serial_port", "/dev/default");
+    this->declare_parameter<int>("serial_baudrate", 0);
     this->declare_parameter<double>("timer_value", 100.0);
     this->declare_parameter<int>("kp_value", 0);
     this->declare_parameter<int>("ki_value", 0);
@@ -51,7 +56,9 @@ bool AdaptiveCruiseControl::read_parameters()
     camera_topic_ = this->get_parameter("camera_topic").as_string();
     camera_info_topic_ = this->get_parameter("camera_info_topic").as_string();
     detection_topic_ = this->get_parameter("detection_topic").as_string();
+    throttle_publisher_topic_ = this->get_parameter("throttle_publisher_topic").as_string();
     serial_port_ = this->get_parameter("serial_port").as_string();
+    serial_baudrate_ = this->get_parameter("serial_baudrate").as_int();
     timer_value_ = this->get_parameter("timer_value").as_double();
     kp_ = static_cast<double>(this->get_parameter("kp_value").as_int());
     ki_ = static_cast<double>(this->get_parameter("ki_value").as_int());
@@ -66,7 +73,9 @@ bool AdaptiveCruiseControl::read_parameters()
     RCLCPP_INFO(this->get_logger(), "camera_topic: %s", camera_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "camera_info_topic: %s", camera_info_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "detection_topic: %s", detection_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "throttle_publisher_topic: %s", detection_topic_.c_str());
     RCLCPP_INFO(this->get_logger(), "serial_port: %s", serial_port_.c_str());
+    RCLCPP_INFO(this->get_logger(), "serial_baudrate: %d", serial_baudrate_);
     RCLCPP_INFO(this->get_logger(), "timer_value: %f", timer_value_);
     RCLCPP_INFO(this->get_logger(), "kp: %f", kp_);
     RCLCPP_INFO(this->get_logger(), "ki: %f", ki_);
@@ -191,6 +200,8 @@ void AdaptiveCruiseControl::detection_callback(const vision_msgs::msg::Detection
     if (msg->detections.empty())
     {
       RCLCPP_INFO(this->get_logger(), "Detection mesaji bos!");
+      integral_adaptive_ = 0.0;
+      prev_error_adaptive_ = 0.0;
       bbox_received_ =false;
       return;
     }else
@@ -237,20 +248,28 @@ void AdaptiveCruiseControl::timer_callback()
   else
   {
     RCLCPP_INFO(this->get_logger(), "Mesafe hesaplanamadi! bbox bilgisi yok veya lidar nokta bulutu dusmuyor.");
+    integral_adaptive_ = 0.0;
+    prev_error_adaptive_ = 0.0;
+    integral_ = 0.0;
+    prev_error_ = 0.0;
     adaptive_cruise_controller_flag_ = false;
   }
 
-  if(adaptive_cruise_controller_flag_ == true && relative_lead_vehicle_speed <= 0)
+  if(adaptive_cruise_controller_flag_ == true && relative_lead_vehicle_speed <= 0.002)
   {
-    adaptive_cruise_controller(relative_lead_vehicle_speed);
+    int throttle = adaptive_cruise_controller(relative_lead_vehicle_speed);
   }
-  else
-  {
-    cruise_controller();
-  }
+  // else
+  // {
+  //   int throttle = cruise_controller();
+  // }
+  std_msgs::msg::Float32 throttle_msg;
+  throttle_msg.data = static_cast<float>(throttle);
+  throttle_publisher_->publish(throttle_msg);
+  RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
 }
 
-void AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehicle_speed)
+int AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehicle_speed)
 {
   RCLCPP_INFO(this->get_logger(), "Adaptive cruise controller calisiyor!");
   double dt = timer_value_ / 1000.0;
@@ -260,9 +279,11 @@ void AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehi
   prev_error_adaptive_ = error;
   double output = kp_ * error + ki_ * integral_adaptive_ + kd_ * derivative;
   throttle = normalize_output(output);
+  RCLCPP_INFO(this->get_logger(), "Adaptive throttle: %d", throttle);
+  return throttle;
 }
 
-void AdaptiveCruiseControl::cruise_controller()
+int AdaptiveCruiseControl::cruise_controller()
 {
   RCLCPP_INFO(this->get_logger(), "Cruise controller calisiyor!");
   double dt = timer_value_ / 1000.0;
@@ -278,6 +299,7 @@ void AdaptiveCruiseControl::cruise_controller()
   RCLCPP_INFO(this->get_logger(), "output : %f", output);
   throttle = normalize_output(output);
   RCLCPP_INFO(this->get_logger(), "Throttle: %d", throttle);
+  return throttle;
 }
 
 int AdaptiveCruiseControl::normalize_output(double output)
@@ -292,39 +314,6 @@ int AdaptiveCruiseControl::normalize_output(double output)
   }
 
   return static_cast<int>((output - pid_min_) / (pid_max_ - pid_min_) * 100.0);
-}
-
-void AdaptiveCruiseControl::stm_communication(double value)
-{
-  // Serial communication with STM32
-  serialib serial;
-  char errorOpening = serial.openDevice(serial_port_.c_str(), 115200);
-  if (errorOpening != 1) 
-  {
-    RCLCPP_ERROR(this->get_logger(), "Serial port acilamadi!");
-    return;
-  }
-  RCLCPP_INFO(this->get_logger(), "Serial port acildi!");
-
-  // Send value to STM32 with char value
-  char value_char = static_cast<char>(value);
-  if (serial.writeChar(value_char) != 1) 
-  {
-    RCLCPP_ERROR(this->get_logger(), "Serial porta veri gonderilemedi!");
-    return;
-  }
-  RCLCPP_INFO(this->get_logger(), "Serial porta veri gonderildi!");
-  // Read response from STM32
-  char response;
-  if (serial.readChar(&response) != 1) 
-  {
-    RCLCPP_ERROR(this->get_logger(), "Serial porttan veri okunamadi!");
-    return;
-  }
-  RCLCPP_INFO(this->get_logger(), "Serial porttan veri okundu: %c", response);
-  // Close the serial port
-  serial.closeDevice();
-  RCLCPP_INFO(this->get_logger(), "Serial port kapatildi!");
 }
 
 }

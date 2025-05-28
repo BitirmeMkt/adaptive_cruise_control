@@ -13,9 +13,9 @@
 #include <cv_bridge/cv_bridge.h>
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <cmath>
-#include "serialib/serialib.h"
 #include <unistd.h>
 #include <stdio.h>
+#include "std_msgs/msg/float32.hpp"
 
 namespace adaptive_cruise_control
 {
@@ -28,7 +28,7 @@ public:
 
 private:
   // Buraya publisher, subscriber, timer vb. eklersin
-  inline bool read_parameters();
+  void read_parameters();
 
   void extrinsic_calculation();
 
@@ -43,13 +43,11 @@ private:
 
   void timer_callback();
 
-  void adaptive_cruise_controller(double relative_lead_vehicle_speed);
+  int adaptive_cruise_controller(double relative_lead_vehicle_speed);
 
-  void cruise_controller();
+  int cruise_controller();
 
   int normalize_output(double output);
-
-  void stm_communication(double value);
 
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_subscriber_;
 
@@ -58,6 +56,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
 
   rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detection_subscriber_;
+
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr throttle_publisher_;
 
   laser_geometry::LaserProjection projector_;
 
@@ -75,7 +75,11 @@ private:
 
   std::string detection_topic_;
 
+  std::string throttle_publisher_topic_;
+
   std::string serial_port_;
+
+  int serial_baudrate_;
 
   bool adaptive_cruise_controller_flag_;
 
@@ -154,7 +158,7 @@ private:
 
   double relative_lead_vehicle_speed;
 
-  double integral_adaptive_ = 0.0;;
+  double integral_adaptive_ = 0.0;
 
   double integral_ = 0.0;
 };

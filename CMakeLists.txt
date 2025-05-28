@@ -15,6 +15,7 @@ find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(vision_msgs REQUIRED)
+find_package(serial REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -42,6 +43,7 @@ ament_target_dependencies(adaptive_cruise_control_component
   OpenCV
   cv_bridge
   vision_msgs
+  serial
 )
 
 
