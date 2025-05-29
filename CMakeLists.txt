@@ -20,12 +20,8 @@ find_package(serial REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-file(GLOB_RECURSE LIB_SOURCES "include/serialib/*.cpp" "include/serialib/*.c")
-file(GLOB_RECURSE LIB_HEADERS "include/serialib/*.hpp" "include/serialib/*.h")
-
 add_library(adaptive_cruise_control_component SHARED
   src/adaptive_cruise_control.cpp
-  src/serialib.cpp
 )
 
 # Component olarak derlenmesi için eklemeler:
