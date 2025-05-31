@@ -17,4 +17,6 @@ adaptive_cruise_control_node:
     kd_value: 5
     pid_max: 1500.0
     pid_min: 0.0
+    adaptive_cruise_controller_flag: true
+    adaptive_cruite_controller_topic: "/adaptive_cruise_controller_flag"
     

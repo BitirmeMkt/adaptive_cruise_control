@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include "std_msgs/msg/float32.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 namespace adaptive_cruise_control
 {
@@ -59,6 +60,8 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr throttle_publisher_;
 
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr adaptive_cruise_controller_flag_publisher_;
+
   laser_geometry::LaserProjection projector_;
 
   sensor_msgs::msg::PointCloud2 m_pointcloud_msg;
@@ -81,8 +84,6 @@ private:
 
   int serial_baudrate_;
 
-  bool adaptive_cruise_controller_flag_;
-
   double bbox_center_x_;
 
   double bbox_center_y_;
@@ -104,6 +105,8 @@ private:
   bool received_once_;
 
   bool bbox_received_;
+
+  bool relative_lead_vehicle_speed_flag_;
 
   bool old_distance_initialized_;
 
@@ -145,6 +148,10 @@ private:
   double pid_max_;
 
   double pid_min_;
+
+  bool adaptive_cruise_controller_flag_;
+
+  std::string adaptive_cruite_controller_topic_;
 
   int throttle;
 

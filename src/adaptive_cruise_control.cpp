@@ -26,6 +26,9 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
   throttle_publisher_ = this->create_publisher<std_msgs::msg::Float32>(
     throttle_publisher_topic_.c_str(), 10);
 
+  adaptive_cruise_controller_flag_publisher_ = this->create_publisher<std_msgs::msg::Bool>(
+    adaptive_cruite_controller_topic_ .c_str(), 10);
+
   // Timer callback
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(static_cast<int>(timer_value_)), std::bind(&AdaptiveCruiseControl::timer_callback, this));
@@ -49,6 +52,8 @@ void AdaptiveCruiseControl::read_parameters()
     this->declare_parameter<int>("kd_value", 0);
     this->declare_parameter<double>("pid_max", 0.0);
     this->declare_parameter<double>("pid_min", 0.0);
+    this->declare_parameter<bool>("adaptive_cruise_controller_flag", false);
+    this->declare_parameter<std::string>("adaptive_cruite_controller_topic", "default_adaptive_cruise_controller_flag");
 
     translation_vector_ = this->get_parameter("translation_vector").as_double_array();
     rotation_matrix_ = this->get_parameter("rotation_matrix").as_double_array();
@@ -65,6 +70,8 @@ void AdaptiveCruiseControl::read_parameters()
     kd_ = static_cast<double>(this->get_parameter("kd_value").as_int());
     pid_max_ = this->get_parameter("pid_max").as_double();
     pid_min_ = this->get_parameter("pid_min").as_double();
+    adaptive_cruise_controller_flag_ = this->get_parameter("adaptive_cruise_controller_flag").as_bool();
+    adaptive_cruite_controller_topic_ = this->get_parameter("adaptive_cruite_controller_topic").as_string();
 
     RCLCPP_INFO(this->get_logger(), "translation_vector: [%f, %f, %f]", translation_vector_[0], translation_vector_[1], translation_vector_[2]);
     RCLCPP_INFO(this->get_logger(), "rotation_matrix: [%f, %f, %f, %f, %f, %f, %f, %f, %f]", rotation_matrix_[0], rotation_matrix_[1],
@@ -82,6 +89,8 @@ void AdaptiveCruiseControl::read_parameters()
     RCLCPP_INFO(this->get_logger(), "kd: %f", kd_);
     RCLCPP_INFO(this->get_logger(), "pid_max: %f", pid_max_);
     RCLCPP_INFO(this->get_logger(), "pid_min: %f", pid_min_);
+    RCLCPP_INFO(this->get_logger(), "adaptive_cruise_controller_flag: %s", adaptive_cruise_controller_flag_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "adaptive_cruite_controller_topic: %s", adaptive_cruite_controller_topic_.c_str());
 }
 
 void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
@@ -224,10 +233,13 @@ void AdaptiveCruiseControl::detection_callback(const vision_msgs::msg::Detection
 
 void AdaptiveCruiseControl::timer_callback()
 {
+  std_msgs::msg::Bool controller_flag_msg;
+  controller_flag_msg.data = adaptive_cruise_controller_flag_;
+  adaptive_cruise_controller_flag_publisher_->publish(controller_flag_msg);
+  RCLCPP_INFO(this->get_logger(), "Adaptive cruise controller flag: %s", adaptive_cruise_controller_flag_ ? "true" : "false");
   // Distance calculation
-  if(bbox_received_ == true && !distance_values.empty())
+  if(bbox_received_ == true && !distance_values.empty() && adaptive_cruise_controller_flag_ == true)
   {
-    adaptive_cruise_controller_flag_ = true;
     double sum = 0.0;
     for (const auto& distances : distance_values)
     {
@@ -239,7 +251,8 @@ void AdaptiveCruiseControl::timer_callback()
     if (old_distance_initialized_)
     {
       relative_lead_vehicle_speed = (average_distance - old_distance_) / (timer_value_/1000);
-      RCLCPP_INFO(this->get_logger(), "Lead vehicle speed: %f", relative_lead_vehicle_speed);      
+      RCLCPP_INFO(this->get_logger(), "Lead vehicle speed: %f", relative_lead_vehicle_speed);
+      relative_lead_vehicle_speed_flag_ = true; 
     }
     
     old_distance_ = average_distance;
@@ -252,28 +265,34 @@ void AdaptiveCruiseControl::timer_callback()
     prev_error_adaptive_ = 0.0;
     integral_ = 0.0;
     prev_error_ = 0.0;
-    adaptive_cruise_controller_flag_ = false;
+    relative_lead_vehicle_speed_flag_ = false;
+    relative_lead_vehicle_speed = 0.0;
+
   }
 
-  if(adaptive_cruise_controller_flag_ == true && relative_lead_vehicle_speed <= 0.002)
+  if(adaptive_cruise_controller_flag_ == true  && relative_lead_vehicle_speed_flag_ == true && old_distance_ >= 5.0)
   {
     int throttle = adaptive_cruise_controller(relative_lead_vehicle_speed);
+    std_msgs::msg::Float32 throttle_msg;
+    throttle_msg.data = static_cast<float>(throttle);
+    throttle_publisher_->publish(throttle_msg);
+    RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
+  }else
+  {
+    int throttle = 0.0;
+    std_msgs::msg::Float32 throttle_msg;
+    throttle_msg.data = static_cast<float>(throttle);
+    throttle_publisher_->publish(throttle_msg);
+    RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
+
   }
-  // else
-  // {
-  //   int throttle = cruise_controller();
-  // }
-  std_msgs::msg::Float32 throttle_msg;
-  throttle_msg.data = static_cast<float>(throttle);
-  throttle_publisher_->publish(throttle_msg);
-  RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
 }
 
 int AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehicle_speed)
 {
   RCLCPP_INFO(this->get_logger(), "Adaptive cruise controller calisiyor!");
   double dt = timer_value_ / 1000.0;
-  double error = std::abs(relative_lead_vehicle_speed);
+  double error = relative_lead_vehicle_speed;
   integral_adaptive_ += error * dt;
   double derivative = (dt > 0.0) ? (error - prev_error_adaptive_) / dt : 0.0;
   prev_error_adaptive_ = error;
