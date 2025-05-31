@@ -58,9 +58,13 @@ private:
 
   rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detection_subscriber_;
 
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr adaptive_cruise_controller_flag_subscriber_;
+
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr throttle_publisher_;
 
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr adaptive_cruise_controller_flag_publisher_;
+
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr sudden_brake_distance_publisher_;
 
   laser_geometry::LaserProjection projector_;
 
@@ -133,6 +137,8 @@ private:
 
   std::vector<double> distance_values;
 
+  std::vector<double> sudden_brake_distance_values;
+
   rclcpp::TimerBase::SharedPtr timer_;
 
   double old_distance_;
@@ -152,6 +158,18 @@ private:
   bool adaptive_cruise_controller_flag_;
 
   std::string adaptive_cruite_controller_topic_;
+
+  double sudden_brake_box_min_x_;
+
+  double sudden_brake_box_max_x_;
+
+  double sudden_brake_box_min_y_;
+
+  double sudden_brake_box_max_y_;
+
+  std::string sudden_brake_distance_topic_;
+
+  double distance_threshold_;
 
   int throttle;
 

@@ -11,7 +11,7 @@ adaptive_cruise_control_node:
     rotation_matrix: [1.0, 0.0, 0.0,
                       0.0, 1.0, 0.0,
                       0.0, 0.0, 1.0]
-    timer_value: 1000.0 # in ms
+    timer_value: 200.0 # in ms
     kp_value: 100
     ki_value: 10
     kd_value: 5
@@ -19,4 +19,10 @@ adaptive_cruise_control_node:
     pid_min: 0.0
     adaptive_cruise_controller_flag: true
     adaptive_cruite_controller_topic: "/adaptive_cruise_controller_flag"
+    sudden_brake_box_min_x: 0.0
+    sudden_brake_box_max_x: 3.0
+    sudden_brake_box_min_y: -3.0
+    sudden_brake_box_max_y: 3.0
+    sudden_brake_distance_topic: "/sudden_brake_distance"
+    distance_threshold: 5.0
     

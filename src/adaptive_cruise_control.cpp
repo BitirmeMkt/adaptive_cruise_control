@@ -28,6 +28,16 @@ AdaptiveCruiseControl::AdaptiveCruiseControl(const rclcpp::NodeOptions & options
 
   adaptive_cruise_controller_flag_publisher_ = this->create_publisher<std_msgs::msg::Bool>(
     adaptive_cruite_controller_topic_ .c_str(), 10);
+  
+  sudden_brake_distance_publisher_ = this->create_publisher<std_msgs::msg::Float32>(
+    sudden_brake_distance_topic_, 10);
+
+  // stmden adaptive cruise controller flagi alınacağı durumda
+  // adaptive_cruise_controller_flag_subscriber_ = this->create_subscription<std_msgs::msg::Bool>(
+  //   adaptive_cruite_controller_topic_, 10, [this](const std_msgs::msg::Bool::SharedPtr msg) {
+  //     adaptive_cruise_controller_flag_ = msg->data;
+  //     RCLCPP_INFO(this->get_logger(), "Adaptive Cruise Controller Flag: %s", adaptive_cruise_controller_flag_ ? "true" : "false");
+  //   });
 
   // Timer callback
   timer_ = this->create_wall_timer(
@@ -53,7 +63,13 @@ void AdaptiveCruiseControl::read_parameters()
     this->declare_parameter<double>("pid_max", 0.0);
     this->declare_parameter<double>("pid_min", 0.0);
     this->declare_parameter<bool>("adaptive_cruise_controller_flag", false);
-    this->declare_parameter<std::string>("adaptive_cruite_controller_topic", "default_adaptive_cruise_controller_flag");
+    this->declare_parameter<std::string>("adaptive_cruite_controller_topic", "/default_adaptive_cruise_controller_flag");
+    this->declare_parameter<double>("sudden_brake_box_min_x", 0.0);
+    this->declare_parameter<double>("sudden_brake_box_max_x", 0.0);
+    this->declare_parameter<double>("sudden_brake_box_min_y", 0.0);
+    this->declare_parameter<double>("sudden_brake_box_max_y", 0.0);
+    this->declare_parameter<std::string>("sudden_brake_distance_topic", "/default_sudden_brake_distance");
+    this->declare_parameter<double>("distance_threshold", 0.0);
 
     translation_vector_ = this->get_parameter("translation_vector").as_double_array();
     rotation_matrix_ = this->get_parameter("rotation_matrix").as_double_array();
@@ -72,6 +88,13 @@ void AdaptiveCruiseControl::read_parameters()
     pid_min_ = this->get_parameter("pid_min").as_double();
     adaptive_cruise_controller_flag_ = this->get_parameter("adaptive_cruise_controller_flag").as_bool();
     adaptive_cruite_controller_topic_ = this->get_parameter("adaptive_cruite_controller_topic").as_string();
+    sudden_brake_box_min_x_ = this->get_parameter("sudden_brake_box_min_x").as_double();
+    sudden_brake_box_max_x_ = this->get_parameter("sudden_brake_box_max_x").as_double();
+    sudden_brake_box_min_y_ = this->get_parameter("sudden_brake_box_min_y").as_double();
+    sudden_brake_box_max_y_ = this->get_parameter("sudden_brake_box_max_y").as_double();
+    sudden_brake_distance_topic_ = this->get_parameter("sudden_brake_distance_topic").as_string();
+    distance_threshold_ = this->get_parameter("distance_threshold").as_double();
+
 
     RCLCPP_INFO(this->get_logger(), "translation_vector: [%f, %f, %f]", translation_vector_[0], translation_vector_[1], translation_vector_[2]);
     RCLCPP_INFO(this->get_logger(), "rotation_matrix: [%f, %f, %f, %f, %f, %f, %f, %f, %f]", rotation_matrix_[0], rotation_matrix_[1],
@@ -91,6 +114,12 @@ void AdaptiveCruiseControl::read_parameters()
     RCLCPP_INFO(this->get_logger(), "pid_min: %f", pid_min_);
     RCLCPP_INFO(this->get_logger(), "adaptive_cruise_controller_flag: %s", adaptive_cruise_controller_flag_ ? "true" : "false");
     RCLCPP_INFO(this->get_logger(), "adaptive_cruite_controller_topic: %s", adaptive_cruite_controller_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "sudden_brake_box_min_x: %f", sudden_brake_box_min_x_);
+    RCLCPP_INFO(this->get_logger(), "sudden_brake_box_max_x: %f", sudden_brake_box_max_x_);
+    RCLCPP_INFO(this->get_logger(), "sudden_brake_box_min_y: %f", sudden_brake_box_min_y_);
+    RCLCPP_INFO(this->get_logger(), "sudden_brake_box_max_y: %f", sudden_brake_box_max_y_);
+    RCLCPP_INFO(this->get_logger(), "sudden_brake_distance_topic: %s", sudden_brake_distance_topic_.c_str());
+    RCLCPP_INFO(this->get_logger(), "distance_threshold: %f", distance_threshold_);
 }
 
 void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
@@ -98,6 +127,7 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
   image_points_.clear();
   bbox_points.clear();
   distance_values.clear();
+  sudden_brake_distance_values.clear();
   // RCLCPP_INFO(this->get_logger(), "LaserScan mesaji alindi! Mesafe: %f", msg->ranges[0]);
   projector_.projectLaser(*msg,m_pointcloud_msg);
   m_pointcloud_msg.header.frame_id = msg->header.frame_id;
@@ -109,6 +139,9 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
 
   for (size_t i = 0; i < m_pointcloud_msg.width * m_pointcloud_msg.height; ++i, ++iter_x, ++iter_y, ++iter_z) {
     // RCLCPP_INFO(this->get_logger(), "Point %zu: x=%f, y=%f, z=%f", i, *iter_x, *iter_y, *iter_z);
+    float x = *iter_x;
+    float y = *iter_y;
+    float z = *iter_z;
 
     Eigen::Vector3d camera_matrix_;
 
@@ -141,6 +174,16 @@ void AdaptiveCruiseControl::scan_callback(const sensor_msgs::msg::LaserScan::Sha
       }
       image_points_.push_back(cv::Point2d(u_,v_));
       // RCLCPP_INFO(this->get_logger(), "Pixel coordinates for point [%zu]: u=%f, v=%f",i, u_, v_);
+    }
+
+    // Sudden brake box kontrolü
+    if (x>= sudden_brake_box_min_x_ && x <= sudden_brake_box_max_x_ &&
+        y >= sudden_brake_box_min_y_ && y <= sudden_brake_box_max_y_)
+    {
+      // RCLCPP_INFO(this->get_logger(), "Sudden brake box icinde nokta bulundu! x: %f, y: %f, z: %f", x, y, z);
+      // Burada ani frenleme işlemi yapılabilir
+      double distance = std::sqrt(std::pow(x, 2) + std::pow(y, 2) + std::pow(z, 2));
+      sudden_brake_distance_values.push_back(distance);
     }
 
   }
@@ -270,22 +313,41 @@ void AdaptiveCruiseControl::timer_callback()
 
   }
 
-  if(adaptive_cruise_controller_flag_ == true  && relative_lead_vehicle_speed_flag_ == true && old_distance_ >= 5.0)
+  std_msgs::msg::Float32 throttle_msg;
+  if(adaptive_cruise_controller_flag_ == true  && relative_lead_vehicle_speed_flag_ == true && old_distance_ >= distance_threshold_)
   {
     int throttle = adaptive_cruise_controller(relative_lead_vehicle_speed);
-    std_msgs::msg::Float32 throttle_msg;
     throttle_msg.data = static_cast<float>(throttle);
-    throttle_publisher_->publish(throttle_msg);
-    RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
   }else
   {
     int throttle = 0.0;
     std_msgs::msg::Float32 throttle_msg;
     throttle_msg.data = static_cast<float>(throttle);
-    throttle_publisher_->publish(throttle_msg);
-    RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
-
   }
+  throttle_publisher_->publish(throttle_msg);
+  RCLCPP_INFO(this->get_logger(), "Throttle published: %f", throttle_msg.data);
+
+  
+  std_msgs::msg::Float32 sudden_brake_distance_msg;
+  if(!sudden_brake_distance_values.empty())
+  {
+    double sum = 0.0;
+    for (const auto& distances : sudden_brake_distance_values)
+    {
+      // bütün distance değerlerinin ortalamasını al
+      sum += distances;
+    }
+    double average_distance = sum / sudden_brake_distance_values.size();
+    RCLCPP_INFO(this->get_logger(), "Sudden brake distance: %f", average_distance);
+    
+    sudden_brake_distance_msg.data = static_cast<float>(average_distance);
+  }else
+  {
+    // RCLCPP_INFO(this->get_logger(), "Sudden brake distance hesaplanamadi! Sudden brake box icinde nokta bulunamadi.");
+    std_msgs::msg::Float32 sudden_brake_distance_msg;
+    sudden_brake_distance_msg.data = 0.0;
+  }
+  sudden_brake_distance_publisher_->publish(sudden_brake_distance_msg);
 }
 
 int AdaptiveCruiseControl::adaptive_cruise_controller(double relative_lead_vehicle_speed)
